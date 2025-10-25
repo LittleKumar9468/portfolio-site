@@ -1,0 +1,183 @@
+// server.js
+const express = require('express');
+const mongoose = require('mongoose');
+const app = express();
+const PORT = 3000;
+// NOTE: Change this URI to your actual MongoDB connection string
+const MONGO_URI = "mongodb://localhost:27017/ecommerceDB"; 
+
+// ===================================
+// 1. Mongoose Schema Definition (Nested Documents)
+// ===================================
+
+// Variant Sub-Schema
+const VariantSchema = new mongoose.Schema({
+    color: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    size: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    stock: {
+        type: Number,
+        required: true,
+        min: 0,
+        default: 0
+    }
+});
+
+// Product Main Schema
+const ProductSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: [true, 'Product name is required.'],
+        trim: true,
+    },
+    price: {
+        type: Number,
+        required: [true, 'Price is required.'],
+        min: 0
+    },
+    category: {
+        type: String,
+        required: [true, 'Category is required.'],
+        trim: true,
+    },
+    // Array of nested documents
+    variants: [VariantSchema] 
+});
+
+const Product = mongoose.model('Product', ProductSchema);
+
+// ===================================
+// 2. Database Connection and Seeding
+// ===================================
+
+const sampleProducts = [
+    {
+        name: "Winter Jacket",
+        price: 200,
+        category: "Apparel",
+        variants: [
+            { color: "Black", size: "S", stock: 8 },
+            { color: "Gray", size: "M", stock: 12 }
+        ]
+    },
+    {
+        name: "Smartphone",
+        price: 699,
+        category: "Electronics",
+        variants: []
+    },
+    {
+        name: "Running Shoes",
+        price: 120,
+        category: "Footwear",
+        variants: [
+            { color: "Red", size: "M", stock: 10 },
+            { color: "Blue", size: "L", stock: 5 }
+        ]
+    }
+];
+
+const connectDB = async () => {
+    try {
+        await mongoose.connect(MONGO_URI);
+        console.log('MongoDB connected successfully! 🚀');
+        
+        // Simple Seeding: Insert data only if the collection is empty
+        const count = await Product.countDocuments();
+        if (count === 0) {
+            await Product.insertMany(sampleProducts);
+            console.log('Sample catalog data inserted.');
+        }
+
+    } catch (err) {
+        console.error('MongoDB connection error:', err.message);
+        process.exit(1); 
+    }
+};
+
+connectDB();
+
+// Middleware
+app.use(express.json());
+
+// ===================================
+// 3. E-commerce Catalog Routes
+// ===================================
+
+// A. Retrieve all products (GET /products)
+app.get('/products', async (req, res) => {
+    try {
+        // Find all products and return them
+        const products = await Product.find({});
+        res.status(200).json(products);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to retrieve products.' });
+    }
+});
+
+// B. Filter products by category (GET /products/category/:categoryName)
+// Corresponds to the 'GET /products/category/Electronics' screenshot
+app.get('/products/category/:categoryName', async (req, res) => {
+    try {
+        const category = req.params.categoryName;
+        // Query to find products where the 'category' field matches the parameter
+        const products = await Product.find({ category: category });
+        
+        if (products.length === 0) {
+            return res.status(404).json({ message: `No products found in category: ${category}` });
+        }
+        
+        res.status(200).json(products);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to filter products by category.' });
+    }
+});
+
+// C. Find products by a specific variant detail (e.g., color)
+// Corresponds to the 'GET /products/by-color/Blue' screenshot
+app.get('/products/by-color/:colorName', async (req, res) => {
+    try {
+        const color = req.params.colorName;
+        
+        // Find products where *any* variant in the 'variants' array matches the color.
+        // Mongoose uses dot notation for querying nested fields in arrays.
+        const products = await Product.find({ 'variants.color': color });
+
+        if (products.length === 0) {
+            return res.status(404).json({ message: `No products found with color: ${color}` });
+        }
+        
+        res.status(200).json(products);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to find products by variant color.' });
+    }
+});
+
+// D. Insert a new product (POST /products) - For testing
+app.post('/products', async (req, res) => {
+    try {
+        const product = new Product(req.body);
+        await product.save();
+        res.status(201).json(product);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// ===================================
+// 4. Server Start
+// ===================================
+app.listen(PORT, () => {
+    console.log(`E-commerce Catalog API running on http://localhost:${PORT}`);
+    console.log('Endpoints:');
+    console.log(' - GET /products (All Products)');
+    console.log(' - GET /products/category/:categoryName (Filter by Category)');
+    console.log(' - GET /products/by-color/:colorName (Filter by Variant Detail)');
+});
