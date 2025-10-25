@@ -1,0 +1,180 @@
+const express = require('express');
+const mongoose = require('mongoose');
+
+// --- 1. Mongoose Model Definition (Student Model) ---
+const StudentSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: [true, 'Student name is required.'],
+        trim: true,
+        maxlength: [100, 'Name cannot be more than 100 characters']
+    },
+    age: {
+        type: Number,
+        required: [true, 'Age is required.'],
+        min: [16, 'Student must be at least 16 years old.']
+    },
+    course: {
+        type: String,
+        required: [true, 'Course is required.'],
+        trim: true,
+        enum: ['Computer Science', 'Mechanical Engineering', 'Business Administration', 'Electrical Engineering', 'Arts', 'Science']
+    }
+}, {
+    timestamps: true
+});
+
+const Student = mongoose.model('Student', StudentSchema);
+
+// --- 2. Controller Logic (studentController) ---
+
+// Utility function for consistent error response
+const sendError = (res, statusCode, message) => {
+    return res.status(statusCode).json({ error: message });
+};
+
+// CRUD Functions
+const studentController = {
+    // CREATE (POST)
+    createStudent: async (req, res) => {
+        try {
+            const student = await Student.create(req.body);
+            // 201 Created Status
+            res.status(201).json(student); 
+        } catch (err) {
+            if (err.name === 'ValidationError') {
+                const messages = Object.values(err.errors).map(val => val.message);
+                return sendError(res, 400, messages.join(', '));
+            }
+            sendError(res, 500, 'Server error while creating student.');
+        }
+    },
+
+    // READ ALL (GET)
+    getStudents: async (req, res) => {
+        try {
+            const students = await Student.find({});
+            res.status(200).json(students);
+        } catch (err) {
+            sendError(res, 500, 'Server error while fetching students.');
+        }
+    },
+
+    // READ ONE (GET /:id)
+    getStudentById: async (req, res) => {
+        try {
+            const student = await Student.findById(req.params.id);
+
+            if (!student) {
+                return sendError(res, 404, `Student with ID ${req.params.id} not found.`);
+            }
+            
+            res.status(200).json(student);
+        } catch (err) {
+            if (err.name === 'CastError') {
+                return sendError(res, 400, `Invalid student ID format.`);
+            }
+            sendError(res, 500, 'Server error while fetching student.');
+        }
+    },
+
+    // UPDATE (PUT)
+    updateStudent: async (req, res) => {
+        try {
+            const student = await Student.findByIdAndUpdate(
+                req.params.id, 
+                req.body, { 
+                    new: true, 
+                    runValidators: true // Enforce schema validation on update
+                }
+            );
+
+            if (!student) {
+                return sendError(res, 404, `Student with ID ${req.params.id} not found.`);
+            }
+            
+            res.status(200).json(student);
+        } catch (err) {
+            if (err.name === 'CastError') {
+                 return sendError(res, 400, `Invalid student ID format.`);
+            }
+            if (err.name === 'ValidationError') {
+                const messages = Object.values(err.errors).map(val => val.message);
+                return sendError(res, 400, messages.join(', '));
+            }
+            sendError(res, 500, 'Server error while updating student.');
+        }
+    },
+
+    // DELETE
+    deleteStudent: async (req, res) => {
+        try {
+            const student = await Student.findByIdAndDelete(req.params.id);
+
+            if (!student) {
+                return sendError(res, 404, `Student with ID ${req.params.id} not found.`);
+            }
+            
+            res.status(200).json({ 
+                message: 'Student deleted successfully.',
+                student: student 
+            });
+        } catch (err) {
+            if (err.name === 'CastError') {
+                 return sendError(res, 400, `Invalid student ID format.`);
+            }
+            sendError(res, 500, 'Server error while deleting student.');
+        }
+    }
+};
+
+// --- 3. Express Routes Definition (studentRoutes) ---
+
+const router = express.Router();
+
+// Base route: /api/students
+router.route('/')
+    .get(studentController.getStudents) 
+    .post(studentController.createStudent); 
+
+router.route('/:id')
+    .get(studentController.getStudentById) 
+    .put(studentController.updateStudent) 
+    .delete(studentController.deleteStudent); 
+
+
+// --- 4. Main Server Setup and Execution ---
+
+const app = express();
+const PORT = 3000;
+// NOTE: Configure your MongoDB connection string here
+const MONGO_URI = "mongodb://localhost:27017/studentDB"; 
+
+// Database Connection
+const connectDB = async () => {
+    try {
+        await mongoose.connect(MONGO_URI);
+        console.log('MongoDB connected successfully! 🚀');
+    } catch (err) {
+        console.error('MongoDB connection error:', err.message);
+        process.exit(1); 
+    }
+};
+
+// Connect to DB and apply middleware
+connectDB();
+app.use(express.json());
+
+// Mount the student routes under the /api/students path
+app.use('/api/students', router);
+
+// Basic root route
+app.get('/', (req, res) => {
+    res.send('Student Management API Running. Use /api/students for CRUD operations.');
+});
+
+// Server Start
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Test API endpoints at http://localhost:${PORT}/api/students`);
+});
