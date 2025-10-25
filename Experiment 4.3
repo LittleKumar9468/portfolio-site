@@ -1,0 +1,149 @@
+const express = require('express');
+const app = express();
+const port = 3000;
+
+
+const SEATS = {
+    '1': { status: 'available', lockedBy: null, lockExpiresAt: null, timerId: null },
+    '2': { status: 'available', lockedBy: null, lockExpiresAt: null, timerId: null },
+    '3': { status: 'available', lockedBy: null, lockExpiresAt: null, timerId: null },
+    '4': { status: 'available', lockedBy: null, lockExpiresAt: null, timerId: null },
+    '5': { status: 'available', lockedBy: null, lockExpiresAt: null, timerId: null },
+    '6': { status: 'available', lockedBy: null, lockExpiresAt: null, timerId: null },
+};
+
+const LOCK_DURATION = 60 * 1000;
+
+function unlockSeat(seatId) {
+    const seat = SEATS[seatId];
+    if (seat && seat.status === 'locked') {
+        console.log(`Lock for Seat ${seatId} expired.`);
+        // Clear any existing timer just in case
+        if (seat.timerId) {
+            clearTimeout(seat.timerId);
+        }
+        // Reset the seat state
+        seat.status = 'available';
+        seat.lockedBy = null;
+        seat.lockExpiresAt = null;
+        seat.timerId = null;
+    }
+}
+
+function setLockTimer(seatId) {
+    const seat = SEATS[seatId];
+    // Clear previous timer to prevent conflicts if re-locking happens
+    if (seat.timerId) {
+        clearTimeout(seat.timerId);
+    }
+    
+    // Set a new timer
+    seat.timerId = setTimeout(() => {
+        unlockSeat(seatId);
+    }, LOCK_DURATION);
+}
+
+app.use(express.json());
+
+function getSeat(seatId, res) {
+    const seat = SEATS[seatId];
+    if (!seat) {
+        res.status(404).json({ message: `Seat ${seatId} not found.` });
+        return null;
+    }
+    return seat;
+}
+
+app.get('/seats', (req, res) => {
+    // Return a simplified view of seat status for the expected output format
+    const seatStatus = {};
+    for (const id in SEATS) {
+        seatStatus[id] = { status: SEATS[id].status === 'available' ? 'available' : 'unavailable' };
+        
+        // Detailed status can be added for debugging:
+        /*
+        seatStatus[id] = { 
+            status: SEATS[id].status, 
+            lockedBy: SEATS[id].lockedBy, 
+            expires: SEATS[id].lockExpiresAt ? new Date(SEATS[id].lockExpiresAt).toLocaleTimeString() : null 
+        };
+        */
+    }
+    res.status(200).json(seatStatus);
+});
+
+app.post('/lock/:seatId', (req, res) => {
+    const seatId = req.params.seatId;
+    const seat = getSeat(seatId, res);
+    if (!seat) return;
+    
+    const tempUserId = Date.now().toString(); 
+
+    if (seat.status === 'booked') {
+        return res.status(400).json({ message: `Seat ${seatId} is already booked.` });
+    }
+    
+    if (seat.status === 'locked') {
+        if (Date.now() > seat.lockExpiresAt) {
+        
+            unlockSeat(seatId);
+        } else {
+           
+            return res.status(409).json({ message: `Seat ${seatId} is temporarily locked until ${new Date(seat.lockExpiresAt).toLocaleTimeString()}.` });
+        }
+    }
+
+    // Lock the seat
+    seat.status = 'locked';
+    seat.lockedBy = tempUserId;
+    seat.lockExpiresAt = Date.now() + LOCK_DURATION;
+    setLockTimer(seatId);
+    
+    const minutes = Math.ceil(LOCK_DURATION / 60000);
+    res.status(200).json({ 
+        message: `Seat ${seatId} locked successfully. Confirm within ${minutes} minute(s).`,
+        tempUserId: tempUserId // Return for use in the /confirm endpoint
+    });
+});
+
+// 3. POST /confirm/:seatId - Confirm the booking
+app.post('/confirm/:seatId', (req, res) => {
+    const seatId = req.params.seatId;
+    const { userId } = req.body; // Expecting the temporary userId from the lock endpoint
+
+    const seat = getSeat(seatId, res);
+    if (!seat) return;
+
+    if (seat.status === 'booked') {
+        return res.status(400).json({ message: `Seat ${seatId} is already booked.` });
+    }
+    
+    if (seat.status !== 'locked' || seat.lockedBy !== userId || Date.now() > seat.lockExpiresAt) {
+        // If the lock has expired, reset it before returning the error
+        if (seat.status === 'locked' && Date.now() > seat.lockExpiresAt) {
+            unlockSeat(seatId); 
+            return res.status(400).json({ message: `Lock for Seat ${seatId} has expired. Please lock it again.` });
+        }
+        
+        // Seat is available or locked by someone else
+        return res.status(400).json({ message: `Seat ${seatId} is not locked by you or cannot be booked.` });
+    }
+
+    // Confirm the booking
+    seat.status = 'booked';
+    // Clear the lock timer since the booking is final
+    if (seat.timerId) {
+        clearTimeout(seat.timerId);
+    }
+    seat.lockedBy = userId; // Store the final booking ID/User
+    seat.lockExpiresAt = null;
+    seat.timerId = null;
+
+    res.status(200).json({ message: `Seat ${seatId} booked successfully!` });
+});
+
+// Start the server
+app.listen(port, () => {
+    console.log(`Ticket Booking System API listening at http://localhost:${port}`);
+    console.log('Initial Seats Status:', Object.keys(SEATS).map(id => `${id}: ${SEATS[id].status}`).join(', '));
+});
