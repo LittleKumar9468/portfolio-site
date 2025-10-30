@@ -1,0 +1,97 @@
+const express = require('express');
+const jwt = require('jsonwebtoken');
+// It's good practice to load environment variables for the secret key
+require('dotenv').config(); 
+
+const app = express();
+const PORT = 3000;
+
+// Hardcoded secret key (get from .env for production)
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key'; 
+
+// Sample User Database (in a real app, this would be a database query)
+const USERS = [
+    { id: 1, username: 'testuser', password: 'password123' }
+];
+
+// --- MIDDLEWARE SETUP ---
+app.use(express.json()); // To parse incoming JSON requests
+
+// --- JWT Verification Middleware ---
+function authenticateToken(req, res, next) {
+    // Get the Authorization header value (e.g., 'Bearer TOKEN')
+    const authHeader = req.headers['authorization'];
+    // Split the string: ['Bearer', 'TOKEN'] and take the second element
+    const token = authHeader && authHeader.split(' ')[1];
+
+    // If there is no token (e.g., only 'Bearer' or no header)
+    if (token == null) {
+        // HTTP 401 Unauthorized: Request lacks valid authentication credentials
+        return res.status(401).json({ message: 'Token missing' });
+    }
+
+    // Verify the token
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        // If the token is invalid (expired, wrong signature, etc.)
+        if (err) {
+            // HTTP 403 Forbidden: Server understands, but refuses to authorize
+            return res.status(403).json({ message: 'Invalid or expired token' });
+        }
+        
+        // Token is valid! Attach the payload (user info) to the request object
+        req.user = user; 
+        next(); // Proceed to the protected route handler
+    });
+}
+
+// --- ROUTES ---
+
+/**
+ * 🔓 POST /login: Issues a JWT token upon successful authentication.
+ * Request Body: { username: "...", password: "..." }
+ * Expected Output: { token: "..." }
+ */
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+
+    // 1. Authenticate User Credentials (Simplified for this task)
+    const user = USERS.find(u => u.username === username && u.password === password);
+
+    if (!user) {
+        return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // 2. Create the JWT payload
+    // NEVER include sensitive info like the password here!
+    const userPayload = { 
+        id: user.id, 
+        username: user.username 
+    };
+
+    // 3. Sign the token
+    const token = jwt.sign(
+        userPayload, 
+        JWT_SECRET, 
+        { expiresIn: '1h' } // Token expires in 1 hour
+    );
+
+    // 4. Send the token back to the client
+    res.json({ token });
+});
+
+/**
+ * 🔒 GET /protected: A route that requires a valid JWT to access.
+ */
+app.get('/protected', authenticateToken, (req, res) => {
+    // If we reach here, the token was valid, and req.user contains the payload
+    res.json({
+        message: 'You have accessed a protected route!',
+        user: req.user
+    });
+});
+
+
+// --- START SERVER ---
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+});
