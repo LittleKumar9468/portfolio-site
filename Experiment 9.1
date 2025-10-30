@@ -1,0 +1,36 @@
+server {
+    listen 80;
+    server_name localhost;
+
+    # Set the root directory for serving files
+    root /usr/share/nginx/html;
+
+    # Gzip settings for better performance
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript application/x-javascript text/xml application/xml application/xml+rss text/javascript;
+
+    # Define the default index file
+    index index.html;
+
+    location / {
+        # This is the crucial part for client-side routing:
+        # Tries to serve the requested file ($uri) or directory ($uri/),
+        # but if neither exists, it defaults to /index.html.
+        try_files $uri $uri/ /index.html;
+    }
+}
+# Dependencies
+/node_modules
+/npm-debug.log
+.vscode
+
+# Build output (will be created during the build, no need to copy)
+/build
+/dist
+
+# Configuration and Temp files
+.DS_Store
+.env
+.local
+temp
+docker build -t my-react-app .
