@@ -1,0 +1,76 @@
+name: 🚀 React CI/CD Pipeline
+
+# 1. Trigger Configuration
+# Triggers on every push to the 'main' branch and allows manual runs.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# 2. Define Jobs
+jobs:
+  # Job 1: Build and Test
+  build_and_test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 📥 Install dependencies
+        # 'npm ci' ensures clean and consistent installations in CI environments
+        run: npm ci
+
+      - name: 🧪 Run tests
+        # Use '--watchAll=false' for non-interactive environments
+        run: npm test -- --watchAll=false
+
+      - name: 🏗️ Build project
+        # Creates the production-ready 'build' folder
+        run: npm run build
+      
+      - name: ⬆️ Upload production artifacts
+        # Saves the 'build' folder for the deployment job
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-build
+          path: build
+
+  # 
+  # Job 2: Deployment
+  # 
+  deploy:
+    name: 🌐 Deploy to GitHub Pages
+    # Depends on the success of the build job
+    needs: build_and_test 
+    runs-on: ubuntu-latest
+    
+    # Required permissions for deploying to GitHub Pages
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - name: ⬇️ Download production artifacts
+        # Retrieves the 'build' folder created in the previous job
+        uses: actions/download-artifact@v4
+        with:
+          name: production-build
+          path: build
+
+      - name: 🚀 Deploy to GitHub Pages
+        # The peaceiris action simplifies gh-pages deployment
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build # Directory containing the static site
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build # The directory containing the built static files
+          cname: your-custom-domain.com # Optional: if you have a custom domain
