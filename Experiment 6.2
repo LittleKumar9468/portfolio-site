@@ -1,0 +1,131 @@
+import express from 'express';
+import jwt from 'jsonwebtoken';
+import bodyParser from 'body-parser';
+
+// --- Configuration ---
+const app = express();
+const PORT = 3000;
+const JWT_SECRET = 'your_strong_jwt_secret_key'; // CHANGE THIS IN A REAL APP
+const EXPIRES_IN = '1h'; // Token expiration time
+
+// Hardcoded user credentials and initial balance for demonstration
+const HARDCODED_USER = { 
+    username: 'user1',
+    password: 'password123',
+    initialBalance: 1000 
+};
+let accountBalance = HARDCODED_USER.initialBalance;
+
+// --- Middleware Setup ---
+// Use body-parser to parse JSON request bodies
+app.use(bodyParser.json());
+
+// --- JWT Verification Middleware ---
+/**
+ * Middleware to check for a valid Bearer JWT token in the Authorization header.
+ * If valid, it attaches the user data (payload) to req.user and calls next().
+ * If invalid, it returns a 403 Forbidden error.
+ */
+const authenticateToken = (req, res, next) => {
+    // 1. Get the Authorization header
+    const authHeader = req.headers['authorization'];
+    
+    // Check if header exists and starts with "Bearer "
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(403).json({ message: 'Token missing or malformed' });
+    }
+
+    // Extract the token (everything after "Bearer ")
+    const token = authHeader.split(' ')[1];
+
+    // 2. Verify the token
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            // This handles expiration, invalid signature, etc.
+            return res.status(403).json({ message: 'Invalid or expired token' });
+        }
+        
+        // Token is valid. Attach the decoded payload (user info) to the request
+        req.user = user;
+        next(); // Proceed to the route handler
+    });
+};
+
+// --- Routes ---
+
+// 1. Public Route: Login
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+
+    // Hardcoded authentication check
+    if (username === HARDCODED_USER.username && password === HARDCODED_USER.password) {
+        // Successful login: Create JWT payload (user data to store in token)
+        const payload = { 
+            username: HARDCODED_USER.username,
+            role: 'customer' // Example role
+        };
+
+        // Sign the token
+        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: EXPIRES_IN });
+
+        return res.status(200).json({ token });
+    } else {
+        // Failed login
+        return res.status(401).json({ message: 'Invalid credentials' });
+    }
+});
+
+// --- Protected Banking Routes (All use authenticateToken middleware) ---
+
+// 2. Protected Route: View Balance
+app.get('/balance', authenticateToken, (req, res) => {
+    // req.user contains the decoded JWT payload
+    console.log(`User ${req.user.username} is checking balance.`);
+    res.status(200).json({ balance: accountBalance });
+});
+
+// 3. Protected Route: Deposit Money
+app.post('/deposit', authenticateToken, (req, res) => {
+    const { amount } = req.body;
+
+    if (typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({ message: 'Invalid deposit amount' });
+    }
+
+    accountBalance += amount;
+
+    res.status(200).json({ 
+        message: `Deposited $${amount}.`,
+        newBalance: accountBalance 
+    });
+});
+
+// 4. Protected Route: Withdraw Money
+app.post('/withdraw', authenticateToken, (req, res) => {
+    const { amount } = req.body;
+
+    if (typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({ message: 'Invalid withdrawal amount' });
+    }
+    
+    // Handle insufficient balance
+    if (amount > accountBalance) {
+        return res.status(400).json({ 
+            message: 'Insufficient balance',
+            currentBalance: accountBalance
+        });
+    }
+
+    accountBalance -= amount;
+
+    res.status(200).json({ 
+        message: `Withdrew $${amount}.`,
+        newBalance: accountBalance 
+    });
+});
+
+// --- Server Startup ---
+app.listen(PORT, () => {
+    console.log(`Secure Banking API running at http://localhost:${PORT}`);
+    console.log(`Protected routes are: /balance, /deposit, /withdraw`);
+});
